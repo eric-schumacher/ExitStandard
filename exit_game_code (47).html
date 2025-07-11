@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8" />
+  <title>Bombe entschärfen – Start & Codeeingabe</title>
+  <style>
+    *{box-sizing:border-box}
+    body{font-family:Arial,Helvetica,sans-serif;margin:0;padding:0;display:flex;justify-content:center;align-items:center;min-height:100vh;background:#d9d9d9}
+
+    /* ---------- Start ---------- */
+    #start-screen{text-align:center}
+    #start-screen h1{font-size:2.5rem;margin-bottom:1.5rem}
+    #start-btn{font-size:1.5rem;padding:.8rem 2.5rem;border:none;border-radius:8px;background:#8B0000;color:#fff;cursor:pointer}
+    #start-btn:hover{background:#6b0000}
+
+    /* ---------- Game Area ---------- */
+    #game{display:none;padding:2rem;width:100%;max-width:800px;}
+    #timer-wrapper{font-size:2rem;font-weight:700;margin:0 0 1.5rem;text-align:center;transition:color .3s ease,transform .3s ease}
+    #success-msg{display:none;margin-top:1rem;font-size:5.4rem;font-weight:bold;color:#28a745;text-align:center;animation:wobble 1.2s infinite;}}
+
+    .code-block{margin-bottom:2rem}
+    h2{margin:0 0 .6rem}
+    .digits{display:flex;align-items:center}
+    .digits input{width:3rem;height:3rem;font-size:1.5rem;text-align:center;margin-right:.4rem;border:1px solid #888;border-radius:4px}
+    .lock{font-size:2rem;margin-right:.8rem}
+    .message{margin-left:1rem;font-weight:700}
+    .attempts{margin-left:1rem;font-style:italic;font-size:.9rem}
+    .correct{background:#c8ffc8}
+    .wrong{background:#ffc8c8}
+
+    /* ---------- Game Over ---------- */
+    #fail-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:2000;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;font-weight:bold;overflow:hidden}
+
+    #explosion{position:relative;width:160px;height:160px;animation:core-flare 3s forwards ease-out}
+    #explosion::before{content:"";position:absolute;inset:0;border-radius:50%;background:radial-gradient(circle,#ffff66 0%,#ff6600 50%,#660000 100%);animation:core-flare 3s forwards ease-out}
+    #explosion::after{content:"";position:absolute;inset:-15px;border:8px solid #ffcc00;border-radius:50%;opacity:.9;animation:shock-wave 6s forwards ease-out}
+
+    .mini-explosion{position:absolute;width:50px;height:50px;border-radius:50%;background:radial-gradient(circle,#ffff99 0%,#ff6600 50%,#660000 100%);pointer-events:none;animation:mini-boom 6s ease-out forwards}
+
+    @keyframes core-flare{0%{transform:scale(.2);opacity:1}40%{transform:scale(2.5);opacity:.9}100%{transform:scale(4);opacity:0}}
+    @keyframes shock-wave{0%{transform:scale(.3);opacity:.9}70%{transform:scale(8);opacity:.4}100%{transform:scale(10);opacity:0}}
+    @keyframes mini-boom{0%{transform:scale(.2);opacity:1}50%{transform:scale(3);opacity:.8}100%{transform:scale(4);opacity:0}}
+    /* Timer color states */
+    #timer-wrapper.warning{color:#e6b800}
+    #timer-wrapper.danger{color:#ff3333;animation:shake .5s infinite}
+
+    @keyframes shake{0%{transform:rotate(0)}25%{transform:rotate(2deg)}50%{transform:rotate(0)}75%{transform:rotate(-2deg)}100%{transform:rotate(0)}}
+    @keyframes wobble{0%{transform:rotate(0)}15%{transform:rotate(3deg)}30%{transform:rotate(-3deg)}45%{transform:rotate(2deg)}60%{transform:rotate(-2deg)}75%{transform:rotate(1deg)}100%{transform:rotate(0)}}25%{transform:rotate(2deg)}50%{transform:rotate(0)}75%{transform:rotate(-2deg)}100%{transform:rotate(0)}}
+  </style>
+</head>
+<body>
+  <div id="start-screen">
+    
+    <p style="max-width:600px;margin:0 auto 1.5rem auto;font-size:2.2rem;line-height:1.4">
+      In diesem&nbsp;Tablet ist eine Bombe verbaut! Sie wird <strong>40&nbsp;Minuten</strong> nach
+      Beginn des Spiels explodieren.<br>
+      Ihr könnt die Bombe entschärfen, wenn ihr die beigefügten Rätsel alle korrekt löst
+      und die entstandenen Codes eingebt.<br>
+      <strong>ACHTUNG:</strong> Bei einer fehlerhaften Code‑Eingabe verringert sich eure
+      verbleibende Zeit <strong>jeweils um eine Minute</strong>.
+    </p>
+    <button id="start-btn">Start</button>
+  </div>
+
+  <div id="game">
+    <div id="timer-wrapper">Zeit bis zur Explosion: <span id="timer">40:00</span></div>
+    <div id="success-msg">Geschafft! Ihr habt die Bombe entschärft!</div>
+    <div id="blocks"></div>
+  </div>
+
+
+    <div id="fail-overlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:2000;flex-direction:column;align-items:center;justify-content:center;color:#fff;text-align:center;font-weight:bold;overflow:hidden">
+    <div id="explosion"></div>
+    <div style="font-size:2rem;margin-top:1.5rem">Leider verloren!</div>
+  </div>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<script>
+const codes={start:'1234',blau:'0000',gruen:'1111',gelb:'2222',lila:'3333'};
+const colors={start:'#000',blau:'blue',gruen:'green',gelb:'goldenrod',lila:'purple'};
+const attempts=Object.fromEntries(Object.keys(codes).map(k=>[k,0]));
+const solved=new Set();
+let remainingSec=0,intervalId=null,gameEnded=false;
+
+const startBtn=document.getElementById('start-btn');
+const startScreen=document.getElementById('start-screen');
+const gameArea=document.getElementById('game');
+const blocksWrap=document.getElementById('blocks');
+const timerEl=document.getElementById('timer');
+const successEl=document.getElementById('success-msg');
+const timerWrap=document.getElementById('timer-wrapper');
+const failOL=document.getElementById('fail-overlay');
+
+startBtn.addEventListener('click',()=>{
+  startScreen.style.display='none';
+  gameArea.style.display='block';
+  buildBlocks();
+  initGame();
+  startTimer(40*60);
+});
+
+function buildBlocks(){
+  blocksWrap.innerHTML='';
+  for(const g in codes){
+    blocksWrap.insertAdjacentHTML('beforeend',`<div class="code-block" data-group="${g}">
+      <h2 style="color:${colors[g]}">${g==='start'?'Rätsel Schwarz':'Rätsel '+g.charAt(0).toUpperCase()+g.slice(1)}</h2>
+      <div class="digits"><span class="lock">🔒</span>
+        ${Array(4).fill(`<input class="${g}-digit" maxlength="1" inputmode="numeric">`).join('')}
+        <span class="message"></span><span class="attempts">Fehlversuche: 0</span>
+      </div></div>`);
+  }
+}
+
+function startTimer(sec){remainingSec=sec;updateTimer();intervalId=setInterval(()=>{remainingSec--;updateTimer();if(remainingSec<=0)triggerGameOver();},1000);} 
+function stopTimer(){clearInterval(intervalId);intervalId=null;}
+function updateTimer(){
+    const m = Math.floor(remainingSec / 60);
+    const s = remainingSec % 60;
+    timerEl.textContent = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+    // Color feedback: Gelb < 25 min, Rot (mit Shake) < 15 min
+    timerWrap.classList.remove('warning', 'danger');
+    if (remainingSec <= 900) {
+      timerWrap.classList.add('danger');
+    } else if (remainingSec <= 1500) {
+      timerWrap.classList.add('warning');
+    }
+    }
+function initGame(){Object.keys(codes).forEach(setupBlock);} 
+function setupBlock(g){
+  const inputs=document.querySelectorAll(`.${g}-digit`);
+  const block=document.querySelector(`[data-group="${g}"]`);
+  const lock=block.querySelector('.lock');
+  const msg=block.querySelector('.message');
+  const att=block.querySelector('.attempts');
+  const correct=codes[g];
+
+  inputs.forEach((inp,idx)=>{
+    inp.value='';inp.disabled=false;
+    inp.addEventListener('input',e=>{if(gameEnded)return;inp.value=inp.value.replace(/\D/g,'').slice(0,1);if(inp.value&&idx<inputs.length-1)inputs[idx+1].focus();check();});
+    inp.addEventListener('keydown',e=>{if(e.key==='Backspace'&&!inp.value&&idx>0)inputs[idx-1].focus();});
+  });
+
+  function check(){
+    if(gameEnded)return;
+    inputs.forEach(i=>i.classList.remove('correct','wrong'));
+    const val=[...inputs].map(i=>i.value).join('');
+    if(val.length!==4){msg.textContent='';return;}
+    if(val===correct){
+      if(!solved.has(g))solved.add(g);
+      lock.textContent='🔓';msg.textContent='✔';msg.style.color='green';
+      inputs.forEach(i=>{i.classList.add('correct');
+      // kleines Konfetti nach jedem gelösten Code
+      confetti({particleCount:15,spread:45,origin:{y:0.6}});i.disabled=true;});
+      if(solved.size===5)celebrate();
+    }else{
+      attempts[g]++;att.textContent=`Fehlversuche: ${attempts[g]}`;
+      msg.textContent='✘';msg.style.color='red';
+      inputs.forEach((i,n)=>i.classList.add(i.value===correct[n]?'correct':'wrong'));
+      remainingSec=Math.max(0,remainingSec-60);updateTimer();if(remainingSec===0)triggerGameOver();
+    }
+  }
+}
+
+function celebrate(){
+  if(gameEnded) return;
+  gameEnded = true;
+  stopTimer();
+  timerWrap.style.display = 'none';
+  successEl.style.display = 'block';
+  // Verberge alle Code‑Blöcke
+  blocksWrap.style.display = 'none';
+  const end = Date.now() + 3000;
+  (function frame(){
+    confetti({particleCount:6,angle:60,spread:55,origin:{x:0}});
+    confetti({particleCount:6,angle:120,spread:55,origin:{x:1}});
+    if(Date.now() < end) requestAnimationFrame(frame);
+  })();
+}
+
+function triggerGameOver(){
+  if(gameEnded)return;gameEnded=true;stopTimer();document.querySelectorAll('.digits input').forEach(i=>i.disabled=true);failOL.style.display='flex';
+  const count=60; // heftiger
+  for(let i=0;i<count;i++){
+    const mini=document.createElement('div');mini.className='mini-explosion';mini.style.left=Math.random()*100+'vw';mini.style.top=Math.random()*100+'vh';failOL.appendChild(mini);mini.addEventListener('animationend',()=>mini.remove());
+  }
+}
+</script>
+</body>
+</html>
